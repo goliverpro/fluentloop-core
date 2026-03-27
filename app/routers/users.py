@@ -38,10 +38,13 @@ async def update_level(body: UpdateLevelRequest, current_user=Depends(get_curren
         )
     supabase = get_supabase()
     updated = users_service.update_user_level(supabase, current_user.id, body.level)
-    supabase.table("user_levels").insert({
-        "user_id": current_user.id,
-        "level": body.level,
-        "source": "manual",
-    }).execute()
+    try:
+        supabase.table("user_levels").insert({
+            "user_id": current_user.id,
+            "level": body.level,
+            "source": "manual",
+        }).execute()
+    except Exception:
+        pass  # tabela de auditoria opcional — não bloqueia a operação
     profile = users_service.get_user_profile(supabase, current_user.id)
     return profile

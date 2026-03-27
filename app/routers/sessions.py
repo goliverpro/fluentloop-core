@@ -59,11 +59,14 @@ async def end_session(session_id: str, current_user=Depends(get_current_user)):
     level_up = None
     if new_level:
         users_service.update_user_level(supabase, current_user.id, new_level)
-        supabase.table("user_levels").insert({
-            "user_id": current_user.id,
-            "level": new_level,
-            "source": "auto",
-        }).execute()
+        try:
+            supabase.table("user_levels").insert({
+                "user_id": current_user.id,
+                "level": new_level,
+                "source": "auto",
+            }).execute()
+        except Exception:
+            pass  # tabela de auditoria opcional — não bloqueia a operação
         level_up = new_level
 
     return {**result, "level_up": level_up}

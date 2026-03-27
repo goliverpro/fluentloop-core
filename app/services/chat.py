@@ -2,7 +2,7 @@ import json
 import re
 from typing import AsyncGenerator
 
-import anthropic
+from openai import OpenAI, AuthenticationError
 from supabase import Client
 
 from app.config import settings
@@ -12,9 +12,28 @@ from app.services.users import (
     increment_daily_usage,
     get_user_profile,
 )
-from app.services.sessions import get_session, get_session_messages
+from app.services.sessions import get_session, get_session_messages, update_session_stats
 from app.services.scenarios import get_scenario
 
+
+CORRECTIONS_BLOCK = """
+---
+GRAMMAR CORRECTION RULES (mandatory):
+After EVERY user message, review it strictly for ALL of the following errors:
+- Wrong subject pronoun (e.g. "Can you ask you" → "Can I ask you")
+- Missing or wrong auxiliary verb (do/does/did/will/would/can/could/should)
+- Wrong verb tense (e.g. "I go yesterday" → "I went yesterday")
+- Subject-verb agreement (e.g. "He go" → "He goes")
+- Wrong preposition, article (a/an/the), or word order
+- Wrong or missing plural/singular
+- Vocabulary misuse (wrong word choice)
+
+If you find ANY error, include this block at the very end of your response:
+<corrections>
+{{"corrections": [{{"original": "exact phrase with error", "corrected": "corrected phrase", "type": "grammar|vocabulary", "explanation": "explicação curta em português"}}]}}
+</corrections>
+
+Only omit the block if the message is genuinely error-free. When in doubt, include the correction."""
 
 SYSTEM_PROMPT_BASE = """You are an English conversation tutor helping a Brazilian learner practice English.
 
@@ -24,15 +43,10 @@ Guidelines:
 - Always respond in English
 - Keep responses natural, conversational, and appropriate for {level} level
 - Gently encourage the learner
-- After your response, if the user made grammar or vocabulary errors, include a corrections block in this exact JSON format at the very end:
+""" + CORRECTIONS_BLOCK
 
-<corrections>
-{{"corrections": [{{"original": "text with error", "corrected": "corrected text", "type": "grammar|vocabulary", "explanation": "brief explanation in Portuguese"}}]}}
-</corrections>
-
-If there are no errors, omit the corrections block entirely."""
-
-SYSTEM_PROMPT_SCENARIO = """You are playing the role of {ai_role} in a roleplay scenario: "{scenario_name}".
+SYSTEM_PROMPT_SCENARIO = (
+    """You are playing the role of {ai_role} in a roleplay scenario: "{scenario_name}".
 
 {scenario_description}
 
@@ -41,13 +55,9 @@ User level: {level}
 Guidelines:
 - Stay in character throughout the conversation
 - Use natural English appropriate for the scenario and {level} level
-- After your response, if the user made grammar or vocabulary errors, include a corrections block in this exact JSON format at the very end:
-
-<corrections>
-{{"corrections": [{{"original": "text with error", "corrected": "corrected text", "type": "grammar|vocabulary", "explanation": "brief explanation in Portuguese"}}]}}
-</corrections>
-
-If there are no errors, omit the corrections block entirely."""
+"""
+    + CORRECTIONS_BLOCK
+)
 
 
 def _build_system_prompt(user_level: str, scenario: dict | None) -> str:
@@ -78,14 +88,8 @@ def _extract_corrections(text: str) -> tuple[str, list[dict]]:
 
 
 def _persist_message(supabase: Client, session_id: str, role: str, content: str) -> dict:
-    response = (
-        supabase.table("messages")
-        .insert({"session_id": session_id, "role": role, "content": content})
-        .select("id, role, content, audio_url, created_at")
-        .single()
-        .execute()
-    )
-    return response.data
+    response = supabase.table("messages").insert({"session_id": session_id, "role": role, "content": content}).execute()
+    return response.data[0]
 
 
 def _persist_corrections(supabase: Client, message_id: str, corrections: list[dict]) -> None:
@@ -139,26 +143,32 @@ async def stream_chat(
     system_prompt = _build_system_prompt(profile["level"], scenario)
 
     try:
-        client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+        client = OpenAI(api_key=settings.openai_api_key)
         full_response = ""
 
-        with client.messages.stream(
-            model="claude-3-5-haiku-20241022",
+        stream = client.chat.completions.create(
+            model="gpt-4o-mini",
             max_tokens=1024,
-            system=system_prompt,
-            messages=messages,
-        ) as stream:
-            for text_chunk in stream.text_stream:
+            messages=[{"role": "system", "content": system_prompt}] + messages,
+            stream=True,
+        )
+        for chunk in stream:
+            text_chunk = chunk.choices[0].delta.content or ""
+            if text_chunk:
                 full_response += text_chunk
                 yield f"data: {json.dumps(text_chunk)}\n\n"
 
         clean_text, corrections = _extract_corrections(full_response)
 
-        _persist_message(supabase, session_id, "user", content)
-        ai_msg = _persist_message(supabase, session_id, "assistant", clean_text)
+        user_msg = _persist_message(supabase, session_id, "user", content)
+        _persist_message(supabase, session_id, "assistant", clean_text)
 
         if corrections:
-            _persist_corrections(supabase, ai_msg["id"], corrections)
+            # Correções vinculadas à mensagem do USUÁRIO (a que contém o erro)
+            _persist_corrections(supabase, user_msg["id"], corrections)
+
+        # Atualiza stats da sessão ao vivo após cada troca
+        update_session_stats(supabase, session_id)
 
         increment_daily_usage(supabase, user_id, profile["daily_interactions_used"])
 
@@ -167,7 +177,7 @@ async def stream_chat(
 
         yield "data: [DONE]\n\n"
 
-    except anthropic.AuthenticationError:
+    except AuthenticationError:
         yield "data: [ERROR]Service temporarily unavailable\n\n"
     except Exception as e:
         yield f"data: [ERROR]{str(e)}\n\n"

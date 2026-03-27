@@ -14,26 +14,13 @@ def get_user_profile(supabase: Client, user_id: str) -> dict:
 
 
 def update_user_profile(supabase: Client, user_id: str, payload: dict) -> dict:
-    response = (
-        supabase.table("users")
-        .update(payload)
-        .eq("id", user_id)
-        .select("id, email, name, avatar_url, level, plan, daily_interactions_used, daily_reset_at")
-        .single()
-        .execute()
-    )
-    return response.data
+    supabase.table("users").update(payload).eq("id", user_id).execute()
+    return get_user_profile(supabase, user_id)
 
 
 def update_user_level(supabase: Client, user_id: str, new_level: str) -> dict:
-    response = (
-        supabase.table("users")
-        .update({"level": new_level})
-        .eq("id", user_id)
-        .select("id, level")
-        .single()
-        .execute()
-    )
+    supabase.table("users").update({"level": new_level}).eq("id", user_id).execute()
+    response = supabase.table("users").select("id, level").eq("id", user_id).single().execute()
     return response.data
 
 
@@ -49,15 +36,8 @@ def check_and_reset_daily_limit(supabase: Client, user: dict) -> dict:
     next_reset = reset_at + timedelta(days=1)
 
     if now >= next_reset:
-        updated = (
-            supabase.table("users")
-            .update({"daily_interactions_used": 0, "daily_reset_at": now.isoformat()})
-            .eq("id", user["id"])
-            .select("id, plan, daily_interactions_used, daily_reset_at")
-            .single()
-            .execute()
-        )
-        return updated.data
+        supabase.table("users").update({"daily_interactions_used": 0, "daily_reset_at": now.isoformat()}).eq("id", user["id"]).execute()
+        return get_user_profile(supabase, user["id"])
 
     return user
 

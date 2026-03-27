@@ -11,11 +11,11 @@ class Settings(BaseSettings):
     supabase_url: str
     supabase_service_role_key: str
 
-    # Anthropic
-    anthropic_api_key: str
+    # Anthropic (não usado no MVP — chat usa OpenAI)
+    anthropic_api_key: str = ""
 
-    # Azure Speech
-    azure_speech_key: str
+    # Azure Speech (não usado no MVP — STT usa OpenAI Whisper)
+    azure_speech_key: str = ""
     azure_speech_region: str = "brazilsouth"
 
     # OpenAI

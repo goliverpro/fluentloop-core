@@ -5,13 +5,7 @@ uvicorn[standard]==0.30.6
 # Supabase
 supabase==2.7.4
 
-# Anthropic (Claude)
-anthropic==0.34.0
-
-# Azure Speech
-azure-cognitiveservices-speech==1.41.0
-
-# OpenAI (TTS + Whisper fallback)
+# OpenAI (Chat + TTS + STT/Whisper)
 openai==1.45.0
 
 # Stripe
@@ -24,8 +18,8 @@ slowapi==0.1.9
 cachetools==5.5.0
 
 # Validation
-pydantic==2.9.0
-pydantic-settings==2.5.2
+pydantic>=2.10.0
+pydantic-settings>=2.6.0
 python-multipart==0.0.12
 
 # Security
