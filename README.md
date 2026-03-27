@@ -60,6 +60,17 @@ app/
 └── models/          # Schemas Pydantic
 ```
 
+## Rodando localmente (Git Bash / Windows)
+
+Se o ambiente virtual já estiver criado, não é necessário ativar — chame o uvicorn diretamente:
+
+```bash
+cd /c/Users/gabri/Documents/IA/fluentloop-core
+.venv/Scripts/uvicorn app.main:app --reload
+```
+
+Acesse: `http://localhost:8000/docs`
+
 ## Documentação
 
 Documentação completa do projeto: [fluentloop-docs](https://github.com/goliverpro/fluentloop-docs)
